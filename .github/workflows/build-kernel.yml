@@ -31,7 +31,8 @@ jobs:
 
     - name: Clone Buildroot
       run: |
-        if [ ! -d "buildroot" ]; then
+        if [ ! -f "buildroot/Makefile" ]; then
+          rm -rf buildroot
           git clone --depth 1 --branch 2024.02.11 https://github.com/buildroot/buildroot.git
         fi
 
