@@ -1,0 +1,61 @@
+name: Build BenVM Kernel
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - name: Checkout this repo
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git wget cpio unzip rsync bc \
+          python3 libncurses-dev device-tree-compiler file sed make binutils \
+          patch gzip bzip2 perl tar findutils bash gcc g++
+
+    - name: Cache Buildroot downloads
+      uses: actions/cache@v4
+      with:
+        path: buildroot/dl
+        key: buildroot-dl-2024.02.11-v1
+        restore-keys: |
+          buildroot-dl-2024.02.11-
+
+    - name: Clone Buildroot
+      run: |
+        git clone --depth 1 --branch 2024.02.11 https://github.com/buildroot/buildroot.git
+
+    - name: Apply BenVM configuration
+      run: |
+        cp configs/benvm_defconfig buildroot/configs/benvm_defconfig
+        mkdir -p buildroot/board/benvm
+        cp benvm_kernel.cfg buildroot/board/benvm/benvm_kernel.cfg
+        cd buildroot
+        make benvm_defconfig
+
+    - name: Build
+      run: |
+        cd buildroot
+        make -j$(nproc)
+
+    - name: Verify output
+      run: |
+        ls -la buildroot/output/images/
+        ls -la buildroot/output/images/Image
+        du -h buildroot/output/images/Image
+        hexdump -C buildroot/output/images/Image | head -8
+
+    - name: Upload kernel Image
+      uses: actions/upload-artifact@v4
+      with:
+        name: benvm-kernel-image
+        path: buildroot/output/images/Image
+        retention-days: 90
