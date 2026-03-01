@@ -44,6 +44,11 @@ jobs:
         cd buildroot
         make benvm_defconfig
 
+    - name: Clean previous build
+      run: |
+        cd buildroot
+        make clean
+
     - name: Build
       run: |
         cd buildroot
