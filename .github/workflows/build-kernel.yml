@@ -31,7 +31,9 @@ jobs:
 
     - name: Clone Buildroot
       run: |
-        git clone --depth 1 --branch 2024.02.11 https://github.com/buildroot/buildroot.git
+        if [ ! -d "buildroot" ]; then
+          git clone --depth 1 --branch 2024.02.11 https://github.com/buildroot/buildroot.git
+        fi
 
     - name: Apply BenVM configuration
       run: |
