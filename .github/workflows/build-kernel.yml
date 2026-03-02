@@ -56,15 +56,17 @@ jobs:
 
     - name: Analyse kernel size
       run: |
-        cd buildroot/output/build/linux-*/
+        LINUX_DIR=$(ls -d buildroot/output/build/linux-*/ | head -1)
+        cd "$LINUX_DIR"
+        CROSS="$PWD/../../host/bin/riscv32-buildroot-linux-musl"
         echo "=== vmlinux section sizes ==="
-        $PWD/../../host/bin/riscv32-buildroot-linux-musl-size vmlinux || size vmlinux || true
+        ${CROSS}-size vmlinux || true
         echo ""
         echo "=== Top 20 largest symbols (BSS + data) ==="
-        $PWD/../../host/bin/riscv32-buildroot-linux-musl-nm --size-sort -r vmlinux | head -40 || true
+        ${CROSS}-nm --size-sort -r vmlinux | head -40 || true
         echo ""
         echo "=== Subsystem breakdown ==="
-        find . -name "built-in.a" -o -name "built-in.o" | head -20 | xargs $PWD/../../host/bin/riscv32-buildroot-linux-musl-size 2>/dev/null | sort -n -r -k 4 | head -15 || true
+        find . -name "built-in.a" -o -name "built-in.o" | head -20 | xargs ${CROSS}-size 2>/dev/null | sort -n -r -k 4 | head -15 || true
 
     - name: Upload kernel Image
       uses: actions/upload-artifact@v4
