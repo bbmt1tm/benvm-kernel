@@ -54,12 +54,17 @@ jobs:
         cd buildroot
         make -j$(nproc)
 
-    - name: Verify output
+    - name: Analyse kernel size
       run: |
-        ls -la buildroot/output/images/
-        ls -la buildroot/output/images/Image
-        du -h buildroot/output/images/Image
-        hexdump -C buildroot/output/images/Image | head -8
+        cd buildroot/output/build/linux-*/
+        echo "=== vmlinux section sizes ==="
+        $PWD/../../host/bin/riscv32-buildroot-linux-musl-size vmlinux || size vmlinux || true
+        echo ""
+        echo "=== Top 20 largest symbols (BSS + data) ==="
+        $PWD/../../host/bin/riscv32-buildroot-linux-musl-nm --size-sort -r vmlinux | head -40 || true
+        echo ""
+        echo "=== Subsystem breakdown ==="
+        find . -name "built-in.a" -o -name "built-in.o" | head -20 | xargs $PWD/../../host/bin/riscv32-buildroot-linux-musl-size 2>/dev/null | sort -n -r -k 4 | head -15 || true
 
     - name: Upload kernel Image
       uses: actions/upload-artifact@v4
