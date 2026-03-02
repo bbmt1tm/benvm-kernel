@@ -1,19 +1,34 @@
+# === Architecture ===
+# RV32IMA — explicitly NO compressed (C) instructions
+# BR2_RISCV_ISA_RVC defaults to y in Buildroot, which builds the toolchain
+# with -march=rv32imac. The kernel then detects toolchain C support and
+# auto-enables CONFIG_RISCV_ISA_C=y, overriding our kernel config fragment.
+# Must explicitly disable here so toolchain uses -march=rv32ima.
 BR2_riscv=y
 BR2_RISCV_32=y
 BR2_RISCV_ISA_RVM=y
 BR2_RISCV_ISA_RVA=y
+# BR2_RISCV_ISA_RVC is not set
 BR2_RISCV_ABI_ILP32=y
+
+# === Toolchain ===
 BR2_TOOLCHAIN=y
 BR2_TOOLCHAIN_BUILDROOT=y
 BR2_TOOLCHAIN_BUILDROOT_MUSL=y
+
+# === System ===
 BR2_TARGET_GENERIC_HOSTNAME="benvm"
 BR2_TARGET_GENERIC_ISSUE="Welcome to BenVM Linux"
 BR2_TARGET_GENERIC_GETTY_PORT="hvc0"
 BR2_TARGET_GENERIC_GETTY_BAUDRATE_0=y
 BR2_SYSTEM_DHCP=""
 BR2_TARGET_GENERIC_ROOT_PASSWD=""
+
+# === Init + Packages ===
 BR2_INIT_BUSYBOX=y
 BR2_PACKAGE_BUSYBOX=y
+
+# === Kernel ===
 BR2_LINUX_KERNEL=y
 BR2_LINUX_KERNEL_LATEST_VERSION=y
 BR2_LINUX_KERNEL_USE_DEFCONFIG=y
@@ -21,6 +36,8 @@ BR2_LINUX_KERNEL_DEFCONFIG="rv32"
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="board/benvm/benvm_kernel.cfg"
 BR2_LINUX_KERNEL_IMAGE_TARGET_CUSTOM=y
 BR2_LINUX_KERNEL_IMAGE_TARGET_NAME="Image"
+
+# === Root Filesystem ===
 BR2_TARGET_ROOTFS_CPIO=y
 BR2_TARGET_ROOTFS_CPIO_NONE=y
 BR2_TARGET_ROOTFS_INITRAMFS=y
