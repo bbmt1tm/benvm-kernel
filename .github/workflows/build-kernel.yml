@@ -25,7 +25,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: buildroot/dl
-        key: buildroot-dl-2024.02.11-v1
+        key: buildroot-dl-2024.02.11-v2
         restore-keys: |
           buildroot-dl-2024.02.11-
 
@@ -54,6 +54,116 @@ jobs:
         cd buildroot
         make -j$(nproc)
 
+    - name: Verify kernel configuration
+      run: |
+        echo "=== Verifying critical kernel config options ==="
+        LINUX_DIR=$(ls -d buildroot/output/build/linux-*/ | head -1)
+        CONFIG="${LINUX_DIR}/.config"
+
+        FAIL=0
+
+        # Check compressed instructions are DISABLED
+        if grep -q "CONFIG_RISCV_ISA_C=y" "$CONFIG"; then
+          echo "FATAL: CONFIG_RISCV_ISA_C=y — kernel has compressed instructions!"
+          echo "BenVM does not implement the C extension. This WILL cause illegal instruction traps."
+          FAIL=1
+        else
+          echo "OK: CONFIG_RISCV_ISA_C is not set (no compressed instructions)"
+        fi
+
+        # Check EFI is DISABLED
+        if grep -q "CONFIG_EFI=y" "$CONFIG"; then
+          echo "WARN: CONFIG_EFI=y — Image will have MZ header (BenVM can work around this)"
+          # Not fatal since BenVM has MZ header workaround, but wasteful
+        else
+          echo "OK: CONFIG_EFI is not set (no MZ header)"
+        fi
+
+        # Check MMU is enabled
+        if grep -q "CONFIG_MMU=y" "$CONFIG"; then
+          echo "OK: CONFIG_MMU=y (Sv32 enabled)"
+        else
+          echo "FATAL: CONFIG_MMU not set — need Sv32 for Phase 2B!"
+          FAIL=1
+        fi
+
+        # Check SBI console
+        if grep -q "CONFIG_HVC_RISCV_SBI=y" "$CONFIG"; then
+          echo "OK: CONFIG_HVC_RISCV_SBI=y (SBI console enabled)"
+        else
+          echo "FATAL: CONFIG_HVC_RISCV_SBI not set — no console output!"
+          FAIL=1
+        fi
+
+        # Check STRICT_KERNEL_RWX is off
+        if grep -q "CONFIG_STRICT_KERNEL_RWX=y" "$CONFIG"; then
+          echo "WARN: CONFIG_STRICT_KERNEL_RWX=y — Image will be ~21MB with 4MB PMD gaps"
+        else
+          echo "OK: CONFIG_STRICT_KERNEL_RWX is not set (compact Image)"
+        fi
+
+        # Dump toolchain march for reference
+        echo ""
+        echo "=== Toolchain -march ==="
+        buildroot/output/host/bin/riscv32-buildroot-linux-musl-gcc -v 2>&1 | grep "march" || true
+        echo ""
+        echo "=== Toolchain configured with ==="
+        buildroot/output/host/bin/riscv32-buildroot-linux-musl-gcc -dumpmachine 2>&1 || true
+
+        if [ $FAIL -ne 0 ]; then
+          echo ""
+          echo "BUILD VERIFICATION FAILED — kernel will not boot on BenVM"
+          exit 1
+        fi
+
+    - name: Verify Image format
+      run: |
+        IMAGE="buildroot/output/images/Image"
+        echo "=== Image file info ==="
+        ls -la "$IMAGE"
+        echo ""
+
+        # Check for MZ header
+        MAGIC=$(xxd -l 2 -p "$IMAGE")
+        if [ "$MAGIC" = "4d5a" ]; then
+          echo "WARN: Image has MZ header (PE/EFI stub present)"
+          echo "BenVM MZ workaround will handle this, but CONFIG_EFI=n preferred"
+        else
+          echo "OK: No MZ header — clean entry point"
+        fi
+
+        # Check for RISCV magic at offset 0x30
+        RISCV=$(xxd -s 0x30 -l 4 "$IMAGE" | awk '{print $2$3}')
+        echo "RISCV magic at 0x30: $RISCV"
+
+        # Quick content analysis
+        python3 -c "
+        data = open('$IMAGE', 'rb').read()
+        zeros = data.count(b'\x00')
+        print(f'Total: {len(data):,} bytes ({len(data)/1024/1024:.1f} MB)')
+        print(f'Content: {len(data)-zeros:,} bytes ({100*(len(data)-zeros)/len(data):.0f}%)')
+        print(f'Zeros: {zeros:,} bytes ({100*zeros/len(data):.0f}%)')
+        "
+
+        # Check first instruction for compressed encoding
+        python3 -c "
+        data = open('$IMAGE', 'rb').read()
+        first_word = int.from_bytes(data[0:4], 'little')
+        print(f'First 4 bytes: 0x{first_word:08x}')
+        if data[0] == 0x4d and data[1] == 0x5a:
+            print('  → MZ header detected (PE/EFI)')
+            jal = int.from_bytes(data[2:6], 'little')
+            print(f'  → JAL at offset 2: 0x{jal:08x}')
+        elif first_word & 0x3 == 0x3:
+            print(f'  → 32-bit instruction (opcode 0x{first_word & 0x7f:02x}) — good, no C extension')
+        else:
+            print(f'  → WARNING: compressed instruction detected at offset 0!')
+        "
+
+    - name: Compress kernel
+      run: |
+        gzip -k buildroot/output/images/Image
+
     - name: Analyse kernel size
       run: |
         LINUX_DIR=$(ls -d buildroot/output/build/linux-*/ | head -1)
@@ -64,13 +174,12 @@ jobs:
         echo ""
         echo "=== Top 20 largest symbols (BSS + data) ==="
         ${CROSS}-nm --size-sort -r vmlinux | head -40 || true
-        echo ""
-        echo "=== Subsystem breakdown ==="
-        find . -name "built-in.a" -o -name "built-in.o" | head -20 | xargs ${CROSS}-size 2>/dev/null | sort -n -r -k 4 | head -15 || true
 
     - name: Upload kernel Image
       uses: actions/upload-artifact@v4
       with:
         name: benvm-kernel-image
-        path: buildroot/output/images/Image
+        path: |
+          buildroot/output/images/Image
+          buildroot/output/images/Image.gz
         retention-days: 90
