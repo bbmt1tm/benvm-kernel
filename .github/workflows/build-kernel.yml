@@ -25,15 +25,15 @@ jobs:
       uses: actions/cache@v4
       with:
         path: buildroot/dl
-        key: buildroot-dl-2024.02.11-v2
+        key: buildroot-dl-2025.02.10-v1
         restore-keys: |
-          buildroot-dl-2024.02.11-
+          buildroot-dl-2025.02.10-
 
     - name: Clone Buildroot
       run: |
         if [ ! -f "buildroot/Makefile" ]; then
           rm -rf buildroot
-          git clone --depth 1 --branch 2024.02.11 https://github.com/buildroot/buildroot.git
+          git clone --depth 1 --branch 2025.02.10 https://github.com/buildroot/buildroot.git
         fi
 
     - name: Apply BenVM configuration
@@ -59,6 +59,15 @@ jobs:
         echo "=== Verifying critical kernel config options ==="
         LINUX_DIR=$(ls -d buildroot/output/build/linux-*/ | head -1)
         CONFIG="${LINUX_DIR}/.config"
+
+        # Verify expected kernel version
+        KVER=$(basename "$LINUX_DIR" | sed 's/linux-//')
+        echo "Kernel version: $KVER"
+        if [[ "$KVER" != 6.12.* ]]; then
+          echo "WARN: Expected 6.12.x kernel, got $KVER"
+        else
+          echo "OK: Kernel version $KVER (6.12 LTS)"
+        fi
 
         FAIL=0
 
@@ -101,6 +110,22 @@ jobs:
         else
           echo "OK: CONFIG_STRICT_KERNEL_RWX is not set (compact Image)"
         fi
+
+        # Check LZ4 initramfs decompression support
+        if grep -q "CONFIG_RD_LZ4=y" "$CONFIG"; then
+          echo "OK: CONFIG_RD_LZ4=y (LZ4 initramfs decompression enabled)"
+        else
+          echo "WARN: CONFIG_RD_LZ4 not set — initramfs will use gzip (4x slower)"
+        fi
+
+        # Check for disabled subsystems (spot check)
+        for OPT in CONFIG_PCI CONFIG_VIRTUALIZATION CONFIG_THERMAL CONFIG_IOMMU_SUPPORT CONFIG_DMA_ENGINE; do
+          if grep -q "${OPT}=y" "$CONFIG"; then
+            echo "WARN: ${OPT}=y — unnecessary subsystem still enabled"
+          else
+            echo "OK: ${OPT} disabled"
+          fi
+        done
 
         # Dump toolchain march for reference
         echo ""
