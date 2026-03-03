@@ -15,6 +15,9 @@ BR2_RISCV_ABI_ILP32=y
 BR2_TOOLCHAIN=y
 BR2_TOOLCHAIN_BUILDROOT=y
 BR2_TOOLCHAIN_BUILDROOT_MUSL=y
+# Kernel headers must match the kernel version we're building.
+# Without this, Buildroot defaults to ancient headers and fails.
+BR2_KERNEL_HEADERS_AS_KERNEL=y
 
 # === System ===
 BR2_TARGET_GENERIC_HOSTNAME="benvm"
