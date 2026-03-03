@@ -25,7 +25,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: buildroot/dl
-        key: buildroot-dl-2025.02.10-v1
+        key: buildroot-dl-2025.02.10-v2
         restore-keys: |
           buildroot-dl-2025.02.10-
 
@@ -43,6 +43,40 @@ jobs:
         cp benvm_kernel.cfg buildroot/board/benvm/benvm_kernel.cfg
         cd buildroot
         make benvm_defconfig
+
+    - name: Verify kernel headers config
+      run: |
+        cd buildroot
+        echo "=== Available kernel headers options in this Buildroot ==="
+        grep "config BR2_KERNEL_HEADERS" package/linux-headers/Config.in.host 2>/dev/null || \
+        grep "config BR2_KERNEL_HEADERS" package/linux-headers/Config.in 2>/dev/null || \
+        find . -name "Config.in*" -exec grep -l "KERNEL_HEADERS" {} \; 2>/dev/null | head -5
+        echo ""
+
+        echo "=== Kernel headers config after make defconfig ==="
+        grep -i "KERNEL_HEADERS\|HEADERS_AT_LEAST\|HEADERS_VERSION" .config || echo "(no matches)"
+        echo ""
+        echo "=== BR2_LINUX_KERNEL settings ==="
+        grep "BR2_LINUX_KERNEL" .config | head -10
+
+        # If headers aren't set to 6.12 or AS_KERNEL, force it
+        if ! grep -q "BR2_KERNEL_HEADERS_6_12=y" .config && \
+           ! grep -q "BR2_KERNEL_HEADERS_AS_KERNEL=y" .config; then
+          echo ""
+          echo "WARN: Kernel headers not correctly set. Forcing fix..."
+          # Comment out any existing headers selection
+          sed -i 's/^BR2_KERNEL_HEADERS_[0-9].*=y/# &/' .config
+          # Try AS_KERNEL first (depends on BR2_LINUX_KERNEL=y)
+          if grep -q "BR2_LINUX_KERNEL=y" .config; then
+            echo "BR2_KERNEL_HEADERS_AS_KERNEL=y" >> .config
+          else
+            echo "BR2_KERNEL_HEADERS_6_12=y" >> .config
+          fi
+          make olddefconfig
+          echo ""
+          echo "=== After fix ==="
+          grep -i "KERNEL_HEADERS\|HEADERS_AT_LEAST" .config || echo "(no matches)"
+        fi
 
     - name: Clean previous build
       run: |
