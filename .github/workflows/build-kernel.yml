@@ -86,7 +86,27 @@ jobs:
     - name: Build
       run: |
         cd buildroot
+        # First pass: build everything (kernel will use gzip for initramfs embedding)
         make -j$(nproc)
+
+        # Fix: Force LZ4 for initramfs embedding compression.
+        # CONFIG_INITRAMFS_COMPRESSION_LZ4 lives in a Kconfig choice block
+        # that depends on INITRAMFS_SOURCE being set. Our kernel fragment
+        # is applied during defconfig when INITRAMFS_SOURCE is still empty,
+        # so the choice is unavailable and gzip wins by default.
+        # Fix it after the first build (which sets INITRAMFS_SOURCE), then rebuild.
+        LINUX_DIR=$(ls -d output/build/linux-*/ | head -1)
+        KCONFIG="${LINUX_DIR}/.config"
+        if grep -q "CONFIG_INITRAMFS_COMPRESSION_GZIP=y" "$KCONFIG"; then
+          echo "=== Fixing initramfs compression: GZIP -> LZ4 ==="
+          sed -i 's/CONFIG_INITRAMFS_COMPRESSION_GZIP=y/# CONFIG_INITRAMFS_COMPRESSION_GZIP is not set/' "$KCONFIG"
+          sed -i '/CONFIG_INITRAMFS_COMPRESSION_LZ4/d' "$KCONFIG"
+          echo "CONFIG_INITRAMFS_COMPRESSION_LZ4=y" >> "$KCONFIG"
+          # Rebuild kernel only (fast — just recompresses initramfs + relinks)
+          make linux-rebuild -j$(nproc)
+        else
+          echo "=== Initramfs compression already correct ==="
+        fi
 
     - name: Verify kernel configuration
       run: |
