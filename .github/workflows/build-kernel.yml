@@ -25,7 +25,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: buildroot/dl
-        key: buildroot-dl-2025.02.10-v3
+        key: buildroot-dl-2025.02.10-v4
         restore-keys: |
           buildroot-dl-2025.02.10-
 
@@ -99,11 +99,44 @@ jobs:
         KCONFIG="${LINUX_DIR}/.config"
         if grep -q "CONFIG_INITRAMFS_COMPRESSION_GZIP=y" "$KCONFIG"; then
           echo "=== Fixing initramfs compression: GZIP -> LZ4 ==="
+          # Record pre-fix Image size for comparison
+          PRE_SIZE=$(stat -c%s output/images/Image 2>/dev/null || echo 0)
+          echo "Image size before LZ4 fix: ${PRE_SIZE} bytes"
+
           sed -i 's/CONFIG_INITRAMFS_COMPRESSION_GZIP=y/# CONFIG_INITRAMFS_COMPRESSION_GZIP is not set/' "$KCONFIG"
           sed -i '/CONFIG_INITRAMFS_COMPRESSION_LZ4/d' "$KCONFIG"
           echo "CONFIG_INITRAMFS_COMPRESSION_LZ4=y" >> "$KCONFIG"
-          # Rebuild kernel only (fast — just recompresses initramfs + relinks)
+
+          # CRITICAL: Delete cached initramfs intermediate files.
+          # Without this, linux-rebuild reuses the gzip-compressed
+          # initramfs_inc_data from the first build.
+          rm -f "${LINUX_DIR}/usr/initramfs_inc_data"
+          rm -f "${LINUX_DIR}/usr/initramfs_data.o"
+          rm -f "${LINUX_DIR}/usr/built-in.a"
+          rm -f "${LINUX_DIR}/usr/.initramfs_inc_data.cmd"
+
+          # Rebuild kernel (recompresses initramfs with LZ4 + relinks)
           make linux-rebuild -j$(nproc)
+
+          # Verify LZ4 was actually used
+          POST_SIZE=$(stat -c%s output/images/Image 2>/dev/null || echo 0)
+          echo "Image size after LZ4 fix: ${POST_SIZE} bytes"
+          if [ "$PRE_SIZE" != "0" ] && [ "$POST_SIZE" != "0" ]; then
+            DIFF=$((POST_SIZE - PRE_SIZE))
+            echo "Size difference: ${DIFF} bytes (LZ4 should be LARGER than gzip)"
+            if [ "$POST_SIZE" -le "$PRE_SIZE" ]; then
+              echo "WARN: Image did not grow — LZ4 may not have taken effect!"
+            fi
+          fi
+
+          if grep -q "LZ4" "${LINUX_DIR}/usr/.initramfs_inc_data.cmd" 2>/dev/null; then
+            echo "OK: initramfs recompressed with LZ4"
+          else
+            echo "=== Checking what compression was used ==="
+            cat "${LINUX_DIR}/usr/.initramfs_inc_data.cmd" 2>/dev/null || echo "(no cmd file found)"
+            echo "First bytes of initramfs_inc_data:"
+            xxd -l 16 "${LINUX_DIR}/usr/initramfs_inc_data" 2>/dev/null || echo "(file not found)"
+          fi
         else
           echo "=== Initramfs compression already correct ==="
         fi
