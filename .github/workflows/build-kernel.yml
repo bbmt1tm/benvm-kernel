@@ -25,7 +25,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: buildroot/dl
-        key: buildroot-dl-2025.02.10-v5
+        key: buildroot-dl-2025.02.10-v6
         restore-keys: |
           buildroot-dl-2025.02.10-
 
@@ -90,20 +90,16 @@ jobs:
         make -j$(nproc)
 
         # Fix: Force LZ4 for initramfs embedding compression.
-        # CONFIG_INITRAMFS_COMPRESSION_LZ4 lives in a Kconfig choice block
-        # that depends on INITRAMFS_SOURCE being set. Our kernel fragment
-        # is applied during defconfig when INITRAMFS_SOURCE is still empty,
-        # so the choice is unavailable and gzip wins by default.
-        # Fix it after the first build (which sets INITRAMFS_SOURCE), then rebuild.
+        # Always check that LZ4 is actually set (not just that gzip is absent).
         LINUX_DIR=$(ls -d output/build/linux-*/ | head -1)
         KCONFIG="${LINUX_DIR}/.config"
-        if grep -q "CONFIG_INITRAMFS_COMPRESSION_GZIP=y" "$KCONFIG"; then
-          echo "=== Fixing initramfs compression: GZIP -> LZ4 ==="
+        if ! grep -q "CONFIG_INITRAMFS_COMPRESSION_LZ4=y" "$KCONFIG"; then
+          echo "=== Fixing initramfs compression: forcing LZ4 ==="
           # Record pre-fix Image size for comparison
           PRE_SIZE=$(stat -c%s output/images/Image 2>/dev/null || echo 0)
           echo "Image size before LZ4 fix: ${PRE_SIZE} bytes"
 
-          sed -i 's/CONFIG_INITRAMFS_COMPRESSION_GZIP=y/# CONFIG_INITRAMFS_COMPRESSION_GZIP is not set/' "$KCONFIG"
+          sed -i 's/^CONFIG_INITRAMFS_COMPRESSION_.*=y/# &/' "$KCONFIG"
           sed -i '/CONFIG_INITRAMFS_COMPRESSION_LZ4/d' "$KCONFIG"
           echo "CONFIG_INITRAMFS_COMPRESSION_LZ4=y" >> "$KCONFIG"
 
@@ -114,6 +110,12 @@ jobs:
           rm -f "${LINUX_DIR}/usr/initramfs_data.o"
           rm -f "${LINUX_DIR}/usr/built-in.a"
           rm -f "${LINUX_DIR}/usr/.initramfs_inc_data.cmd"
+
+          # Resolve Kconfig dependencies after manual .config edit
+          make -C "${LINUX_DIR}" ARCH=riscv olddefconfig
+
+          echo "=== Kernel config after fix ==="
+          grep "INITRAMFS_COMPRESSION" "$KCONFIG" || echo "(no INITRAMFS_COMPRESSION entries)"
 
           # Rebuild kernel (recompresses initramfs with LZ4 + relinks)
           make linux-rebuild -j$(nproc)
@@ -138,7 +140,7 @@ jobs:
             xxd -l 16 "${LINUX_DIR}/usr/initramfs_inc_data" 2>/dev/null || echo "(file not found)"
           fi
         else
-          echo "=== Initramfs compression already correct ==="
+          echo "=== Initramfs compression already LZ4 — no fix needed ==="
         fi
 
     - name: Verify kernel configuration
