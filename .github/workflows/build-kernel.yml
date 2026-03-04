@@ -25,7 +25,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: buildroot/dl
-        key: buildroot-dl-2025.02.10-v2
+        key: buildroot-dl-2025.02.10-v3
         restore-keys: |
           buildroot-dl-2025.02.10-
 
@@ -150,6 +150,16 @@ jobs:
           echo "OK: CONFIG_RD_LZ4=y (LZ4 initramfs decompression enabled)"
         else
           echo "WARN: CONFIG_RD_LZ4 not set — initramfs will use gzip (4x slower)"
+        fi
+
+        # Check initramfs EMBEDDING uses LZ4 (not gzip)
+        if grep -q "CONFIG_INITRAMFS_COMPRESSION_LZ4=y" "$CONFIG"; then
+          echo "OK: CONFIG_INITRAMFS_COMPRESSION_LZ4=y (Image embeds LZ4 initramfs)"
+        else
+          echo "WARN: CONFIG_INITRAMFS_COMPRESSION_LZ4 not set — kernel build may gzip the initramfs"
+        fi
+        if grep -q "CONFIG_INITRAMFS_COMPRESSION_GZIP=y" "$CONFIG"; then
+          echo "WARN: CONFIG_INITRAMFS_COMPRESSION_GZIP=y — initramfs embedded as gzip despite LZ4 rootfs!"
         fi
 
         # Check for disabled subsystems (spot check)
